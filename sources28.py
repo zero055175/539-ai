@@ -4,7 +4,8 @@ from urllib.request import urlopen, Request
 from pathlib import Path
 from html.parser import HTMLParser
 from datetime import date
-import os, re, webbrowser, json
+import os, re, webbrowser, json, time
+from urllib.error import URLError, HTTPError
 
 class Table(HTMLParser):
     def __init__(self):
@@ -33,10 +34,16 @@ def parse_secondary(html):
     return [{'d':d,'n':n} for d,n in sorted(result.items())]
 
 def download(url):
-    with urlopen(Request(url,headers={'User-Agent':'Mozilla/5.0 (compatible; 539Research/24.0)'}),timeout=12) as r:
-        body=r.read(80000001)
-    if len(body)>80000000: raise ValueError('response too large')
-    return body
+    for attempt in range(3):
+        try:
+            with urlopen(Request(url,headers={'User-Agent':'Mozilla/5.0 (compatible; 539Research/40.1)'}),timeout=12) as r:
+                body=r.read(80000001)
+            if len(body)>80000000: raise ValueError('response too large')
+            return body
+        except (URLError, TimeoutError, OSError) as e:
+            if isinstance(e, HTTPError) and e.code not in (408,429,500,502,503,504): raise
+            if attempt==2: raise
+            time.sleep(2**attempt)
 
 import csv, io, zipfile, unicodedata
 from urllib.parse import urlsplit

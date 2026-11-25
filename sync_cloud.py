@@ -22,22 +22,27 @@ def merge(by, incoming, today, prefix=''):
     return tmp
 def main():
     now=datetime.now(TZ); today=now.date(); old=json.loads(PATH.read_text()); by=merge({},old['rows'],today); errors=[]; completed=set(old.get('completed_months',[])); months=[f'{y}-{m:02}' for y in range(2007,today.year+1) for m in range(1,(today.month if y==today.year else 12)+1)]; recent=months[-2:]
-    # Annual archives first, bounded per run; rotating unsuccessful years avoid starvation.
-    years=[y for y in range(2007,today.year+1) if any(m.startswith(str(y)) and m not in completed for m in months)]
-    cursor=int(old.get('year_cursor',0)); years=years[cursor%len(years):]+years[:cursor%len(years)] if years else []
-    for y in years[:2]:
-        try:
-            a=annual(y)['rows']; by=merge(by,a,today,str(y)); present={x['d'][:7] for x in a}; completed.update(m for m in present if m not in recent)
-        except Exception as e: errors.append(f'{y}: {e}')
-    missing=[m for m in months if m not in completed and m not in recent]; mc=int(old.get('month_cursor',0)); missing=missing[mc%len(missing):]+missing[:mc%len(missing)] if missing else []
-    for m in recent+missing[:8]:
+    # Monthly API is primary. The failing annual host is no longer required.
+    # Keep previously validated rows; only mark a month complete after a successful fetch.
+    batch=max(1,min(48,int(os.getenv('SYNC_MONTH_BATCH','36'))))
+    missing=[m for m in months if m not in completed and m not in recent]
+    # Rotate the oldest pending months so failures cannot permanently stall backfill.
+    mc=int(old.get('month_cursor',0)); missing=missing[mc%len(missing):]+missing[:mc%len(missing)] if missing else []
+    attempted=[]; succeeded=[]
+    start=time.monotonic()
+    for m in recent+missing[:batch]:
+        if time.monotonic()-start>900: break
+        attempted.append(m)
         try:
             a=monthly(m,today)
             if not a: raise ValueError('empty month')
             by=merge(by,a,today,m)
             if m not in recent: completed.add(m)
-        except Exception as e: errors.append(f'{m}: {e}')
-        time.sleep(.25)
+            succeeded.append(m)
+            print(f'OK {m}: {len(a)} records',flush=True)
+        except Exception as e:
+            errors.append(f'{m}: {e}'); print(f'ERROR {m}: {e}',flush=True)
+        time.sleep(.5)
     try:
         other=parse_secondary(download('https://en.lottolyzer.com/history/taiwan/daily-cash-539/page/1/per-page/50/summary-view').decode('utf-8'))
         conflicts=[x['d'] for x in other if x['d'] in by and by[x['d']]!=x['n']]
@@ -46,6 +51,6 @@ def main():
     except RuntimeError: raise
     except Exception as e: secondary='未核對：'+str(e)
     # Never publish new data if the two sources disagree.
-    q=dict(version='28.0',updated_at=now.isoformat(),rows=[dict(d=d,n=n) for d,n in sorted(by.items())],completed_months=sorted(completed),pending_months=[m for m in months if m not in completed and m not in recent],errors=errors,secondary_status=secondary,year_cursor=cursor+2,month_cursor=mc+8)
-    tmp=PATH.with_suffix('.tmp');tmp.write_text(json.dumps(q,ensure_ascii=False),encoding='utf-8');os.replace(tmp,PATH);print(f'{len(by)} records; {len(errors)} errors; {secondary}')
+    q=dict(version='40.1',updated_at=now.isoformat(),rows=[dict(d=d,n=n) for d,n in sorted(by.items())],completed_months=sorted(completed),pending_months=[m for m in months if m not in completed and m not in recent],errors=errors,secondary_status=secondary,year_cursor=old.get('year_cursor',0),month_cursor=mc+sum(m not in recent for m in attempted),sync_progress=dict(attempted=attempted,succeeded=succeeded,source='monthly API',total_months=len(months),completed_months=len(completed)))
+    tmp=PATH.with_suffix('.tmp');tmp.write_text(json.dumps(q,ensure_ascii=False),encoding='utf-8');os.replace(tmp,PATH);print(f'{len(by)} records; {len(errors)} errors; {len(q["pending_months"])} pending months; {secondary}')
 if __name__=='__main__': main()

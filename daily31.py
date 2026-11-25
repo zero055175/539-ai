@@ -21,6 +21,7 @@ def run(root=ROOT, now=None):
     elif today.weekday()==6 or now.hour>=20 or day in actual: msg='非預設開獎日或已超過封存截止時間'
     elif len(rows)<300 or not dates or dates[-1]!=previous.isoformat(): msg='歷史資料不足或最新一期缺漏，不產生樣本'
     elif h.get('errors'): msg='同步有錯誤，暫不產生樣本'
+    elif h.get('pending_months'): msg='歷史月份尚未補齊，暫不產生樣本'
     else:
         # Fixed Bayesian frequency experiment, not optimized on test data.
         recent=rows[-100:]; counts=Counter(v for r in recent for v in r['n']); fingerprint=hashlib.sha256(json.dumps(rows,sort_keys=True,separators=(',',':')).encode()).hexdigest()
