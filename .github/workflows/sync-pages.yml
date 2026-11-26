@@ -20,14 +20,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python sync_cloud.py
-      - name: Unified research V40
-        id: research
-        env:
-          TSA_URL: ${{ vars.TSA_URL }}
-          TSA_CA_FILE: ${{ vars.TSA_CA_FILE }}
-        run: python research40.py
-        continue-on-error: true
+      - run: python lite41.py
       - name: Persist snapshot
         run: |
           git config user.name 'github-actions[bot]'
@@ -47,3 +40,4 @@ jobs:
     steps:
       - uses: actions/deploy-pages@v4
         id: deployment
+
